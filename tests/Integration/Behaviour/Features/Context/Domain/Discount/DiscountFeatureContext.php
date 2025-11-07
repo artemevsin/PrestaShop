@@ -27,7 +27,11 @@
 namespace Tests\Integration\Behaviour\Features\Context\Domain\Discount;
 
 use Behat\Gherkin\Node\TableNode;
+use Cart;
+use CartRule;
+use DateTime;
 use DateTimeImmutable;
+use DateTimeInterface;
 use Exception;
 use PHPUnit\Framework\Assert;
 use PrestaShop\Decimal\DecimalNumber;
@@ -57,6 +61,7 @@ class DiscountFeatureContext extends AbstractDomainFeatureContext
     {
         $errorCode = match ($field) {
             'name' => DiscountConstraintException::INVALID_NAME,
+            'gift_product' => DiscountConstraintException::INVALID_GIFT_PRODUCT,
             default => null,
         };
 
@@ -77,6 +82,14 @@ class DiscountFeatureContext extends AbstractDomainFeatureContext
     public function assertDiscountIsInvalid(): void
     {
         $this->assertLastErrorIs(CartRuleValidityException::class);
+    }
+
+    /**
+     * @Then I should get an error that start date cannot be after expiry date
+     */
+    public function assertStartDateCannotBeAfterExpiryDate(): void
+    {
+        $this->assertLastErrorIs(DiscountConstraintException::class, DiscountConstraintException::DATE_FROM_GREATER_THAN_DATE_TO);
     }
 
     /**
@@ -128,13 +141,24 @@ class DiscountFeatureContext extends AbstractDomainFeatureContext
             $command->setActive(PrimitiveUtils::castStringBooleanIntoBoolean($data['active']));
         }
         if (isset($data['valid_from'])) {
-            if (empty($data['valid_to'])) {
-                throw new RuntimeException('When setting cart rule range "valid_from" and "valid_to" must be provided');
+            $validFrom = new DateTimeImmutable($data['valid_from']);
+
+            // Check if "never expires" is set
+            if (isset($data['period_never_expires']) && PrimitiveUtils::castStringBooleanIntoBoolean($data['period_never_expires'])) {
+                // Set expiration date to 100 years in the future
+                $validTo = (new DateTime())->modify('+100 years')->setTime(23, 59, 59);
+                $validTo = DateTimeImmutable::createFromMutable($validTo);
+            } elseif (!empty($data['valid_to'])) {
+                $validTo = new DateTimeImmutable($data['valid_to']);
+            } else {
+                throw new RuntimeException('When setting cart rule range "valid_from" and "valid_to" must be provided, or "period_never_expires" must be set');
             }
-            $command->setValidityDateRange(
-                new DateTimeImmutable($data['valid_from']),
-                new DateTimeImmutable($data['valid_to']),
-            );
+
+            try {
+                $command->setValidityDateRange($validFrom, $validTo);
+            } catch (DiscountConstraintException $e) {
+                $this->setLastException($e);
+            }
         }
         if (isset($data['total_quantity'])) {
             $command->setTotalQuantity((int) $data['total_quantity']);
@@ -147,6 +171,10 @@ class DiscountFeatureContext extends AbstractDomainFeatureContext
         $command->setDescription($data['description'] ?? '');
         if (!empty($data['code'])) {
             $command->setCode($data['code']);
+        }
+
+        if (isset($data['customer']) && !empty($data['customer'])) {
+            $command->setCustomerId($this->getSharedStorage()->get($data['customer']));
         }
 
         if ($command->getDiscountType()->getValue() === DiscountType::CART_LEVEL
@@ -200,7 +228,7 @@ class DiscountFeatureContext extends AbstractDomainFeatureContext
     }
 
     /**
-     * @When I update discount :discountType with the following properties:
+     * @When I update discount :discountReference with the following properties:
      */
     public function editDiscount(string $discountReference, TableNode $node): void
     {
@@ -223,10 +251,33 @@ class DiscountFeatureContext extends AbstractDomainFeatureContext
         if (isset($data['active'])) {
             $command->setActive(PrimitiveUtils::castStringBooleanIntoBoolean($data['active']));
         }
-        if (isset($data['valid_from'])) {
+        if (isset($data['period_never_expires']) && PrimitiveUtils::castStringBooleanIntoBoolean($data['period_never_expires'])) {
+            // When "never expires" is set, use 100 years in the future
+            if (isset($data['valid_from'])) {
+                $validFrom = new DateTimeImmutable($data['valid_from']);
+            } else {
+                $validFrom = new DateTimeImmutable();
+            }
+            $validTo = (new DateTime())->modify('+100 years')->setTime(23, 59, 59);
+            $validTo = DateTimeImmutable::createFromMutable($validTo);
+
+            try {
+                $command->setValidityDateRange($validFrom, $validTo);
+            } catch (DiscountConstraintException $e) {
+                $this->setLastException($e);
+            }
+        } elseif (isset($data['valid_from'], $data['valid_to'])) {
+            try {
+                $command->setValidityDateRange(
+                    new DateTimeImmutable($data['valid_from']),
+                    new DateTimeImmutable($data['valid_to']),
+                );
+            } catch (DiscountConstraintException $e) {
+                $this->setLastException($e);
+            }
+        } elseif (isset($data['valid_from'])) {
             $command->setValidFrom(new DateTimeImmutable($data['valid_from']));
-        }
-        if (isset($data['valid_to'])) {
+        } elseif (isset($data['valid_to'])) {
             $command->setValidTo(new DateTimeImmutable($data['valid_to']));
         }
         if (isset($data['total_quantity'])) {
@@ -240,6 +291,15 @@ class DiscountFeatureContext extends AbstractDomainFeatureContext
         $command->setDescription($data['description'] ?? '');
         if (!empty($data['code'])) {
             $command->setCode($data['code']);
+        }
+
+        if (isset($data['customer'])) {
+            if (!empty($data['customer'])) {
+                $command->setCustomerId($this->getSharedStorage()->get($data['customer']));
+            } else {
+                // Empty string means remove customer restriction
+                $command->setCustomerId(0);
+            }
         }
 
         if (!empty($data['reduction_percent'])) {
@@ -336,9 +396,11 @@ class DiscountFeatureContext extends AbstractDomainFeatureContext
             Assert::assertSame($expectedData['code'], $discountForEditing->getCode(), 'Unexpected code');
         }
         if (isset($expectedData['customer'])) {
+            $expectedCustomerId = !empty($expectedData['customer']) ? (int) $this->getSharedStorage()->get($expectedData['customer']) : 0;
+            $actualCustomerId = $discountForEditing->getCustomerId() ?? 0;
             Assert::assertSame(
-                !empty($expectedData['customer']) ? $this->getSharedStorage()->get($expectedData['customer']) : 0,
-                $discountForEditing->getCustomerId(),
+                $expectedCustomerId,
+                $actualCustomerId,
                 'Unexpected customer id'
             );
         }
@@ -413,6 +475,51 @@ class DiscountFeatureContext extends AbstractDomainFeatureContext
         if (isset($expectedData['countries'])) {
             Assert::assertSame($this->referencesToIds($expectedData['countries']), $discountForEditing->getCountryIds(), 'Unexpected countries');
         }
+        if (isset($expectedData['period_never_expires'])) {
+            $neverExpires = $this->isPeriodNeverExpires($discountForEditing->getValidTo());
+            Assert::assertSame(
+                PrimitiveUtils::castStringBooleanIntoBoolean($expectedData['period_never_expires']),
+                $neverExpires,
+                'Unexpected period_never_expires value'
+            );
+        }
+    }
+
+    /**
+     * @Then discount :discountReference expiration date should be more than :years years in the future
+     */
+    public function assertExpirationDateIsFarInFuture(string $discountReference, int $years = 50): void
+    {
+        $discountForEditing = $this->getDiscountForEditing($discountReference);
+        $validTo = $discountForEditing->getValidTo();
+
+        Assert::assertNotNull($validTo, 'Expiration date should not be null');
+
+        $now = new DateTime();
+        $threshold = $now->modify('+' . $years . ' years');
+
+        Assert::assertGreaterThan(
+            $threshold,
+            $validTo,
+            sprintf('Expiration date should be more than %d years in the future', $years)
+        );
+    }
+
+    /**
+     * Check if the discount period is set to "never expires" (100 years in the future).
+     */
+    private function isPeriodNeverExpires(?DateTimeInterface $validTo): bool
+    {
+        if ($validTo === null) {
+            return false;
+        }
+
+        // Check if the expiration date is more than 50 years in the future
+        // (we use 50 years as a threshold to detect "never expires" dates set to 100 years)
+        $now = new DateTime();
+        $threshold = $now->modify('+50 years');
+
+        return $validTo > $threshold;
     }
 
     protected function getDiscountForEditing(string $discountReference): DiscountForEditing
@@ -423,5 +530,117 @@ class DiscountFeatureContext extends AbstractDomainFeatureContext
         );
 
         return $discountForEditing;
+    }
+
+    /**
+     * @When I set compatible types for discount :discountReference to:
+     *
+     * @param string $discountReference
+     * @param TableNode $tableNode
+     */
+    public function setCompatibleTypesForDiscount(string $discountReference, TableNode $tableNode): void
+    {
+        $discountId = $this->getSharedStorage()->get($discountReference);
+        $typeStrings = array_filter(array_column($tableNode->getRows(), 0));
+
+        // Get Doctrine connection
+        $connection = $this->getContainer()->get('doctrine.dbal.default_connection');
+        $dbPrefix = $this->getContainer()->getParameter('database_prefix');
+
+        // Convert type strings to type IDs
+        $compatibleTypeIds = [];
+        foreach ($typeStrings as $typeString) {
+            $qb = $connection->createQueryBuilder();
+            $qb->select('crt.id_cart_rule_type')
+                ->from($dbPrefix . 'cart_rule_type', 'crt')
+                ->where('crt.type = :typeString')
+                ->setParameter('typeString', $typeString);
+
+            $result = $qb->executeQuery()->fetchAssociative();
+            if ($result) {
+                $compatibleTypeIds[] = (int) $result['id_cart_rule_type'];
+            }
+        }
+
+        // Delete existing compatible types
+        $qb = $connection->createQueryBuilder();
+        $qb->delete($dbPrefix . 'cart_rule_compatible_types')
+            ->where('id_cart_rule = :discountId')
+            ->setParameter('discountId', $discountId);
+        $qb->executeStatement();
+
+        // Insert new compatible types
+        foreach ($compatibleTypeIds as $typeId) {
+            $qb = $connection->createQueryBuilder();
+            $qb->insert($dbPrefix . 'cart_rule_compatible_types')
+                ->values([
+                    'id_cart_rule' => ':discountId',
+                    'id_cart_rule_type' => ':typeId',
+                ])
+                ->setParameter('discountId', $discountId)
+                ->setParameter('typeId', $typeId);
+            $qb->executeStatement();
+        }
+    }
+
+    /**
+     * @Then discount :discountReference should be compatible with types:
+     *
+     * @param string $discountReference
+     * @param TableNode $tableNode
+     */
+    public function assertDiscountCompatibleTypes(string $discountReference, TableNode $tableNode): void
+    {
+        $discountId = $this->getSharedStorage()->get($discountReference);
+        $expectedTypeStrings = array_filter(array_column($tableNode->getRows(), 0));
+
+        // Get Doctrine connection
+        $connection = $this->getContainer()->get('doctrine.dbal.default_connection');
+        $dbPrefix = $this->getContainer()->getParameter('database_prefix');
+
+        // Get actual compatible types
+        $qb = $connection->createQueryBuilder();
+        $qb->select('crt.type')
+            ->from($dbPrefix . 'cart_rule_compatible_types', 'crct')
+            ->innerJoin('crct', $dbPrefix . 'cart_rule_type', 'crt', 'crct.id_cart_rule_type = crt.id_cart_rule_type')
+            ->where('crct.id_cart_rule = :discountId')
+            ->andWhere('crt.active = 1')
+            ->setParameter('discountId', $discountId);
+
+        $results = $qb->executeQuery()->fetchAllAssociative();
+        $actualTypeStrings = array_column($results, 'type');
+
+        // Sort both arrays for comparison
+        sort($expectedTypeStrings);
+        sort($actualTypeStrings);
+
+        Assert::assertEquals(
+            $expectedTypeStrings,
+            $actualTypeStrings,
+            sprintf(
+                'Discount compatible types mismatch. Expected: [%s], Got: [%s]',
+                implode(', ', $expectedTypeStrings),
+                implode(', ', $actualTypeStrings)
+            )
+        );
+    }
+
+    /**
+     * @Then cart :cartReference should have :count cart rules applied
+     *
+     * @param string $cartReference
+     * @param int $count
+     */
+    public function assertCartHasCartRulesCount(string $cartReference, int $count): void
+    {
+        $cartId = $this->getSharedStorage()->get($cartReference);
+        $cart = new Cart($cartId);
+        $cartRules = $cart->getCartRules(CartRule::FILTER_ACTION_ALL, false);
+
+        Assert::assertCount(
+            $count,
+            $cartRules,
+            sprintf('Expected %d cart rules but found %d', $count, count($cartRules))
+        );
     }
 }

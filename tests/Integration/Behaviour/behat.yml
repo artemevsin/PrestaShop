@@ -335,6 +335,9 @@ default:
         - Tests\Integration\Behaviour\Features\Context\Domain\Product\UpdateProductSuppliersFeatureContext
         - Tests\Integration\Behaviour\Features\Context\Domain\CountryFeatureContext
         - Tests\Integration\Behaviour\Features\Context\Domain\AddressFeatureContext
+        - Tests\Integration\Behaviour\Features\Context\Domain\FeatureValueFeatureContext
+        - Tests\Integration\Behaviour\Features\Context\Domain\FeatureFeatureContext
+        - Tests\Integration\Behaviour\Features\Context\Domain\Product\UpdateProductFeatureValuesFeatureContext
 
     catalog_price_rule:
       paths:
@@ -677,6 +680,7 @@ default:
         - Tests\Integration\Behaviour\Features\Context\Configuration\EmailConfigurationFeatureContext
         - Tests\Integration\Behaviour\Features\Context\CountryFeatureContext
         - Tests\Integration\Behaviour\Features\Context\CustomerFeatureContext
+        - Tests\Integration\Behaviour\Features\Context\CarrierFeatureContext
         - Tests\Integration\Behaviour\Features\Context\Domain\Carrier\CarrierFeatureContext
         - Tests\Integration\Behaviour\Features\Context\Domain\Carrier\CarrierRangesFeatureContext
         - Tests\Integration\Behaviour\Features\Context\Domain\Carrier\CarrierTaxRuleGroupFeatureContext
@@ -686,6 +690,7 @@ default:
         - Tests\Integration\Behaviour\Features\Context\Domain\OrderFeatureContext
         - Tests\Integration\Behaviour\Features\Context\Domain\OrderShippingFeatureContext
         - Tests\Integration\Behaviour\Features\Context\Domain\Product\AddProductFeatureContext
+        - Tests\Integration\Behaviour\Features\Context\Domain\Product\UpdateProductFeatureContext
         - Tests\Integration\Behaviour\Features\Context\Domain\Product\UpdateShippingFeatureContext
         - Tests\Integration\Behaviour\Features\Context\Domain\TaxRulesGroupFeatureContext
         - Tests\Integration\Behaviour\Features\Context\Domain\ZoneFeatureContext

@@ -151,7 +151,8 @@ final class ShipmentGridDefinitionFactory extends AbstractFilterableGridDefiniti
      */
     private function getRowActions()
     {
-        return (new RowActionCollection())
+        $rowActions = new RowActionCollection();
+        $rowActions
             ->add(
                 (new AdditionalShipmentRowAction('More'))
                     ->setName($this->trans('More', [], 'Admin.Actions'))
@@ -161,6 +162,11 @@ final class ShipmentGridDefinitionFactory extends AbstractFilterableGridDefiniti
                         'order_id_field' => 'order_id',
                         'items' => 'items',
                         'total_shipments' => 'total_shipments',
-                    ]));
+                        'tracking_number' => 'tracking_number',
+                        'carrier' => 'carrier',
+                    ])
+            );
+
+        return $rowActions;
     }
 }

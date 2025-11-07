@@ -25,7 +25,10 @@
  */
 
 use PrestaShop\PrestaShop\Adapter\Product\PriceFormatter;
+use PrestaShop\PrestaShop\Adapter\Shipment\DeliveryOptionsProvider;
 use PrestaShop\PrestaShop\Core\Checkout\TermsAndConditions;
+use PrestaShop\PrestaShop\Core\FeatureFlag\FeatureFlagSettings;
+use PrestaShop\PrestaShop\Core\FeatureFlag\FeatureFlagStateCheckerInterface;
 use PrestaShop\PrestaShop\Core\Foundation\Templating\RenderableProxy;
 use PrestaShopBundle\Translation\TranslatorComponent;
 
@@ -118,12 +121,25 @@ class OrderControllerCore extends FrontController
      */
     public function getCheckoutSession(): CheckoutSession
     {
-        $deliveryOptionsFinder = new DeliveryOptionsFinder(
-            $this->context,
-            $this->getTranslator(),
-            $this->objectPresenter,
-            new PriceFormatter()
-        );
+        /** @var FeatureFlagStateCheckerInterface $featureFlagManager */
+        $featureFlagManager = $this->get(FeatureFlagStateCheckerInterface::class);
+
+        if ($featureFlagManager->isEnabled(FeatureFlagSettings::FEATURE_FLAG_IMPROVED_SHIPMENT)) {
+            $deliveryOptionsFinder = new DeliveryOptionsProvider(
+                $this->context,
+                $this->getTranslator(),
+                $this->objectPresenter,
+                new PriceFormatter(),
+                $this->cart_presenter,
+            );
+        } else {
+            $deliveryOptionsFinder = new DeliveryOptionsFinder(
+                $this->context,
+                $this->getTranslator(),
+                $this->objectPresenter,
+                new PriceFormatter()
+            );
+        }
 
         $session = new CheckoutSession(
             $this->context,
@@ -231,7 +247,8 @@ class OrderControllerCore extends FrontController
 
         if ($this->context->cart->isAllProductsInStock() !== true
             || $this->context->cart->checkAllProductsAreStillAvailableInThisState() !== true
-            || $this->context->cart->checkAllProductsHaveMinimalQuantities() !== true) {
+            || $this->context->cart->checkAllProductsHaveMinimalQuantities() !== true
+            || $this->context->cart->checkCountriesAreEnabled() !== true) {
             $responseData['errors'] = true;
             $responseData['cartUrl'] = $this->context->link->getPageLink('cart', null, null, ['action' => 'show']);
         }
@@ -270,6 +287,11 @@ class OrderControllerCore extends FrontController
         if ($this->context->cart->isAllProductsInStock() !== true
             || $this->context->cart->checkAllProductsAreStillAvailableInThisState() !== true
             || $this->context->cart->checkAllProductsHaveMinimalQuantities() !== true) {
+            $shouldRedirectToCart = true;
+        }
+
+        // Additionally, check that the addresses are valid
+        if ($this->context->cart->checkCountriesAreEnabled() !== true) {
             $shouldRedirectToCart = true;
         }
 
@@ -424,7 +446,7 @@ class OrderControllerCore extends FrontController
                 new ConditionsToApproveFinder(
                     $this->context,
                     $translator
-                )
+                ),
             ));
 
         return $checkoutProcess;

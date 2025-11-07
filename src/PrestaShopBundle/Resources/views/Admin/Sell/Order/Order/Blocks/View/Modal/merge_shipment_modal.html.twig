@@ -32,12 +32,16 @@
           <span aria-hidden="true">×</span>
         </button>
       </div>
+
       <div class="modal-body" id="mergeShipmentFormContainer"></div>
-      <div class="skeleton skeleton--shipment-modal"></div>
+
+      {{ include('@PrestaShop/Admin/Sell/Order/Order/Blocks/View/Modal/Skeletons/merge_shipment_skeleton.html.twig') }}
+
       <div class="modal-footer shipment-form__footer">
         <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">
           {{ 'Cancel'|trans({}, 'Admin.Actions') }}
         </button>
+
         <button type="submit" class="btn btn-primary" id="submitMergeShipment" form="merge_shipment" disabled>
           {{ 'Merge shipment'|trans({}, 'Admin.Actions') }}
         </button>

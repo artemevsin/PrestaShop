@@ -25,6 +25,7 @@
  */
 
 use PrestaShop\PrestaShop\Adapter\ContainerFinder;
+use PrestaShop\PrestaShop\Adapter\Discount\Application\DiscountApplicationService;
 use PrestaShop\PrestaShop\Core\Domain\CartRule\CartRuleSettings;
 use PrestaShop\PrestaShop\Core\Domain\Discount\ValueObject\DiscountType;
 use PrestaShop\PrestaShop\Core\FeatureFlag\FeatureFlagSettings;
@@ -113,7 +114,7 @@ class CartRuleCore extends ObjectModel
     public $active = true;
     public $date_add;
     public $date_upd;
-    public ?string $type = null;
+    public $id_cart_rule_type;
 
     protected static $cartAmountCache = [];
 
@@ -158,7 +159,7 @@ class CartRuleCore extends ObjectModel
             'active' => ['type' => self::TYPE_BOOL, 'validate' => 'isBool'],
             'date_add' => ['type' => self::TYPE_DATE, 'validate' => 'isDate'],
             'date_upd' => ['type' => self::TYPE_DATE, 'validate' => 'isDate'],
-            'type' => ['type' => self::TYPE_STRING, 'validate' => 'isString'],
+            'id_cart_rule_type' => ['type' => self::TYPE_INT, 'validate' => 'isUnsignedId'],
             /* Lang fields */
             'name' => [
                 'type' => self::TYPE_HTML,
@@ -169,6 +170,31 @@ class CartRuleCore extends ObjectModel
             ],
         ],
     ];
+
+    /**
+     * Get the discount type string from id_cart_rule_type
+     *
+     * @return string|null
+     */
+    public function getType(): ?string
+    {
+        static $typeCache = [];
+
+        if (!$this->id_cart_rule_type) {
+            return null;
+        }
+
+        if (!isset($typeCache[$this->id_cart_rule_type])) {
+            $result = Db::getInstance()->getValue('
+                SELECT type
+                FROM ' . _DB_PREFIX_ . 'cart_rule_type
+                WHERE id_cart_rule_type = ' . (int) $this->id_cart_rule_type
+            );
+            $typeCache[$this->id_cart_rule_type] = $result ?: null;
+        }
+
+        return $typeCache[$this->id_cart_rule_type];
+    }
 
     public static function resetStaticCache()
     {
@@ -1036,10 +1062,34 @@ class CartRuleCore extends ObjectModel
         $container = $containerFinder->getContainer();
         $featureFlagManager = $container->get(FeatureFlagStateCheckerInterface::class);
         if ($featureFlagManager !== null && $featureFlagManager->isEnabled(FeatureFlagSettings::FEATURE_FLAG_DISCOUNT)) {
-            // This part will have to handle the incompatibility between discount types, for now we can't edit those incompatibility
-            // rules yet, so for the sake of the initial POC we simplify the check by preventing discounts to be compatible with each others
-            if ($nbOfCartRules >= 1) {
-                return (!$display_error) ? false : $this->trans(sprintf('This voucher is not combinable with an other voucher already in your cart: %s', $cart_rule['code'] ?? ''), [], 'Shop.Notifications.Error');
+            // Use DiscountApplicationService to determine which discounts to apply and their priority order
+            $existingCartRuleIds = array_filter(
+                array_column($otherCartRules, 'id_cart_rule'),
+                function ($id) {
+                    return $id != $this->id;
+                }
+            );
+
+            try {
+                $applicationService = $container->get(DiscountApplicationService::class);
+                $result = $applicationService->determineDiscountsToApply($this->id, $existingCartRuleIds);
+
+                if (!$result->canApply()) {
+                    $errorMessage = $result->getRejectionReason()
+                        ?? 'This voucher is not combinable with other vouchers in your cart';
+
+                    return (!$display_error) ? false : $this->trans($errorMessage, [], 'Shop.Notifications.Error');
+                }
+
+                // Remove conflicting discounts that were replaced by higher priority ones
+                foreach ($result->getDiscountsToRemove() as $ruleIdToRemove) {
+                    $cart->removeCartRule($ruleIdToRemove);
+                }
+
+                // Note: The actual application order is determined by the result
+                // The cart will apply discounts in the priority order specified by $result->getDiscountsToApply()
+            } catch (Exception $e) {
+                // Fallback: if service is not available or discount has no type, skip compatibility check
             }
         }
 
@@ -1105,27 +1155,33 @@ class CartRuleCore extends ObjectModel
                      */
                     switch ($product_rule['type']) {
                         case 'attributes':
-                            // Build the matching list of "{productId}-{combinationId}" compatible with the IN mysql operator, this will result in  a string looking like:
-                            //   "23-45", "23-46", "42-0"
-                            $combinationInValue = implode(',', array_map(fn ($combinationIdentifier) => '"' . $combinationIdentifier . '"', $eligible_products_list));
-                            $cart_attributes = Db::getInstance()->executeS('
-							SELECT cp.quantity, cp.`id_product`, pac.`id_attribute`, cp.`id_product_attribute`
-							FROM `' . _DB_PREFIX_ . 'cart_product` cp
-							LEFT JOIN `' . _DB_PREFIX_ . 'product_attribute_combination` pac ON cp.id_product_attribute = pac.id_product_attribute
-							WHERE cp.`id_cart` = ' . (int) $cart->id . '
-							AND CONCAT(cp.`id_product`, "-", cp.`id_product_attribute`) IN (' . $combinationInValue . ')');
-                            $count_matching_products = 0;
-                            $matching_products_list = [];
-                            foreach ($cart_attributes as $cart_attribute) {
-                                if (in_array($cart_attribute['id_attribute'], $product_rule['values'])) {
-                                    $count_matching_products += $cart_attribute['quantity'];
-                                    if (
-                                        $alreadyInCart
-                                        && $this->gift_product == $cart_attribute['id_product']
-                                        && $this->gift_product_attribute == $cart_attribute['id_product_attribute']) {
-                                        --$count_matching_products;
+                            // Skip if no eligible products to avoid SQL syntax error
+                            if (empty($eligible_products_list)) {
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                            } else {
+                                // Build the matching list of "{productId}-{combinationId}" compatible with the IN mysql operator, this will result in  a string looking like:
+                                //   "23-45", "23-46", "42-0"
+                                $combinationInValue = implode(',', array_map(fn ($combinationIdentifier) => '"' . $combinationIdentifier . '"', $eligible_products_list));
+                                $cart_attributes = Db::getInstance()->executeS('
+								SELECT cp.quantity, cp.`id_product`, pac.`id_attribute`, cp.`id_product_attribute`
+								FROM `' . _DB_PREFIX_ . 'cart_product` cp
+								LEFT JOIN `' . _DB_PREFIX_ . 'product_attribute_combination` pac ON cp.id_product_attribute = pac.id_product_attribute
+								WHERE cp.`id_cart` = ' . (int) $cart->id . '
+								AND CONCAT(cp.`id_product`, "-", cp.`id_product_attribute`) IN (' . $combinationInValue . ')');
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                                foreach ($cart_attributes as $cart_attribute) {
+                                    if (in_array($cart_attribute['id_attribute'], $product_rule['values'])) {
+                                        $count_matching_products += $cart_attribute['quantity'];
+                                        if (
+                                            $alreadyInCart
+                                            && $this->gift_product == $cart_attribute['id_product']
+                                            && $this->gift_product_attribute == $cart_attribute['id_product_attribute']) {
+                                            --$count_matching_products;
+                                        }
+                                        $matching_products_list[] = $cart_attribute['id_product'] . '-' . $cart_attribute['id_product_attribute'];
                                     }
-                                    $matching_products_list[] = $cart_attribute['id_product'] . '-' . $cart_attribute['id_product_attribute'];
                                 }
                             }
                             if ($count_matching_products < $product_rule_group['quantity']) {
@@ -1136,20 +1192,26 @@ class CartRuleCore extends ObjectModel
 
                             break;
                         case 'products':
-                            $cart_products = Db::getInstance()->executeS('
-							SELECT cp.quantity, cp.`id_product`
-							FROM `' . _DB_PREFIX_ . 'cart_product` cp
-							WHERE cp.`id_cart` = ' . (int) $cart->id . '
-							AND cp.`id_product` IN (' . implode(',', array_map('intval', $eligible_products_list)) . ')');
-                            $count_matching_products = 0;
-                            $matching_products_list = [];
-                            foreach ($cart_products as $cart_product) {
-                                if (in_array($cart_product['id_product'], $product_rule['values'])) {
-                                    $count_matching_products += $cart_product['quantity'];
-                                    if ($alreadyInCart && $this->gift_product == $cart_product['id_product']) {
-                                        --$count_matching_products;
+                            // Skip if no eligible products to avoid SQL syntax error
+                            if (empty($eligible_products_list)) {
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                            } else {
+                                $cart_products = Db::getInstance()->executeS('
+								SELECT cp.quantity, cp.`id_product`
+								FROM `' . _DB_PREFIX_ . 'cart_product` cp
+								WHERE cp.`id_cart` = ' . (int) $cart->id . '
+								AND cp.`id_product` IN (' . implode(',', array_map('intval', $eligible_products_list)) . ')');
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                                foreach ($cart_products as $cart_product) {
+                                    if (in_array($cart_product['id_product'], $product_rule['values'])) {
+                                        $count_matching_products += $cart_product['quantity'];
+                                        if ($alreadyInCart && $this->gift_product == $cart_product['id_product']) {
+                                            --$count_matching_products;
+                                        }
+                                        $matching_products_list[] = $cart_product['id_product'] . '-0';
                                     }
-                                    $matching_products_list[] = $cart_product['id_product'] . '-0';
                                 }
                             }
                             if ($count_matching_products < $product_rule_group['quantity']) {
@@ -1188,24 +1250,30 @@ class CartRuleCore extends ObjectModel
 
                             break;
                         case 'categories':
-                            $cart_categories = Db::getInstance()->executeS('
-							SELECT cp.quantity, cp.`id_product`, cp.`id_product_attribute`, catp.`id_category`
-							FROM `' . _DB_PREFIX_ . 'cart_product` cp
-							LEFT JOIN `' . _DB_PREFIX_ . 'category_product` catp ON cp.id_product = catp.id_product
-							WHERE cp.`id_cart` = ' . (int) $cart->id . '
-							AND cp.`id_product` IN (' . implode(',', array_map('intval', $eligible_products_list)) . ')
-							AND cp.`id_product` <> ' . (int) $this->gift_product);
-                            $count_matching_products = 0;
-                            $matching_products_list = [];
-                            foreach ($cart_categories as $cart_category) {
-                                if (in_array($cart_category['id_category'], $product_rule['values'])
-                                    /*
-                                     * We also check that the product is not already in the matching product list,
-                                     * because there are doubles in the query results (when the product is in multiple categories)
-                                     */
-                                    && !in_array($cart_category['id_product'] . '-' . $cart_category['id_product_attribute'], $matching_products_list)) {
-                                    $count_matching_products += $cart_category['quantity'];
-                                    $matching_products_list[] = $cart_category['id_product'] . '-' . $cart_category['id_product_attribute'];
+                            // Skip if no eligible products to avoid SQL syntax error
+                            if (empty($eligible_products_list)) {
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                            } else {
+                                $cart_categories = Db::getInstance()->executeS('
+								SELECT cp.quantity, cp.`id_product`, cp.`id_product_attribute`, catp.`id_category`
+								FROM `' . _DB_PREFIX_ . 'cart_product` cp
+								LEFT JOIN `' . _DB_PREFIX_ . 'category_product` catp ON cp.id_product = catp.id_product
+								WHERE cp.`id_cart` = ' . (int) $cart->id . '
+								AND cp.`id_product` IN (' . implode(',', array_map('intval', $eligible_products_list)) . ')
+								AND cp.`id_product` <> ' . (int) $this->gift_product);
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                                foreach ($cart_categories as $cart_category) {
+                                    if (in_array($cart_category['id_category'], $product_rule['values'])
+                                        /*
+                                         * We also check that the product is not already in the matching product list,
+                                         * because there are doubles in the query results (when the product is in multiple categories)
+                                         */
+                                        && !in_array($cart_category['id_product'] . '-' . $cart_category['id_product_attribute'], $matching_products_list)) {
+                                        $count_matching_products += $cart_category['quantity'];
+                                        $matching_products_list[] = $cart_category['id_product'] . '-' . $cart_category['id_product_attribute'];
+                                    }
                                 }
                             }
                             if ($count_matching_products < $product_rule_group['quantity']) {
@@ -1220,18 +1288,24 @@ class CartRuleCore extends ObjectModel
 
                             break;
                         case 'manufacturers':
-                            $cart_manufacturers = Db::getInstance()->executeS('
-							SELECT cp.quantity, cp.`id_product`, p.`id_manufacturer`
-							FROM `' . _DB_PREFIX_ . 'cart_product` cp
-							LEFT JOIN `' . _DB_PREFIX_ . 'product` p ON cp.id_product = p.id_product
-							WHERE cp.`id_cart` = ' . (int) $cart->id . '
-							AND cp.`id_product` IN (' . implode(',', array_map('intval', $eligible_products_list)) . ')');
-                            $count_matching_products = 0;
-                            $matching_products_list = [];
-                            foreach ($cart_manufacturers as $cart_manufacturer) {
-                                if (in_array($cart_manufacturer['id_manufacturer'], $product_rule['values'])) {
-                                    $count_matching_products += $cart_manufacturer['quantity'];
-                                    $matching_products_list[] = $cart_manufacturer['id_product'] . '-0';
+                            // Skip if no eligible products to avoid SQL syntax error
+                            if (empty($eligible_products_list)) {
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                            } else {
+                                $cart_manufacturers = Db::getInstance()->executeS('
+								SELECT cp.quantity, cp.`id_product`, p.`id_manufacturer`
+								FROM `' . _DB_PREFIX_ . 'cart_product` cp
+								LEFT JOIN `' . _DB_PREFIX_ . 'product` p ON cp.id_product = p.id_product
+								WHERE cp.`id_cart` = ' . (int) $cart->id . '
+								AND cp.`id_product` IN (' . implode(',', array_map('intval', $eligible_products_list)) . ')');
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                                foreach ($cart_manufacturers as $cart_manufacturer) {
+                                    if (in_array($cart_manufacturer['id_manufacturer'], $product_rule['values'])) {
+                                        $count_matching_products += $cart_manufacturer['quantity'];
+                                        $matching_products_list[] = $cart_manufacturer['id_product'] . '-0';
+                                    }
                                 }
                             }
                             if ($count_matching_products < $product_rule_group['quantity']) {
@@ -1242,23 +1316,65 @@ class CartRuleCore extends ObjectModel
 
                             break;
                         case 'suppliers':
-                            $cart_suppliers = Db::getInstance()->executeS('
-							SELECT cp.quantity, cp.`id_product`, p.`id_supplier`
-							FROM `' . _DB_PREFIX_ . 'cart_product` cp
-							LEFT JOIN `' . _DB_PREFIX_ . 'product` p ON cp.id_product = p.id_product
-							WHERE cp.`id_cart` = ' . (int) $cart->id . '
-							AND cp.`id_product` IN (' . implode(',', array_map('intval', $eligible_products_list)) . ')');
-                            $count_matching_products = 0;
-                            $matching_products_list = [];
-                            foreach ($cart_suppliers as $cart_supplier) {
-                                if (in_array($cart_supplier['id_supplier'], $product_rule['values'])) {
-                                    $count_matching_products += $cart_supplier['quantity'];
-                                    $matching_products_list[] = $cart_supplier['id_product'] . '-0';
+                            // Skip if no eligible products to avoid SQL syntax error
+                            if (empty($eligible_products_list)) {
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                            } else {
+                                $cart_suppliers = Db::getInstance()->executeS('
+								SELECT cp.quantity, cp.`id_product`, p.`id_supplier`
+								FROM `' . _DB_PREFIX_ . 'cart_product` cp
+								LEFT JOIN `' . _DB_PREFIX_ . 'product` p ON cp.id_product = p.id_product
+								WHERE cp.`id_cart` = ' . (int) $cart->id . '
+								AND cp.`id_product` IN (' . implode(',', array_map('intval', $eligible_products_list)) . ')');
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                                foreach ($cart_suppliers as $cart_supplier) {
+                                    if (in_array($cart_supplier['id_supplier'], $product_rule['values'])) {
+                                        $count_matching_products += $cart_supplier['quantity'];
+                                        $matching_products_list[] = $cart_supplier['id_product'] . '-0';
+                                    }
                                 }
                             }
                             if ($count_matching_products < $product_rule_group['quantity']) {
                                 ++$failedProductRules;
                                 break;
+                            }
+                            $eligible_products_list = $this->filterProducts($eligible_products_list, $matching_products_list, $product_rule['type']);
+
+                            break;
+                        case 'features':
+                            // Skip if no eligible products to avoid SQL syntax error
+                            if (empty($eligible_products_list)) {
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                            } else {
+                                // Build the matching list of "{productId}-{productFeatureValueId}" compatible with the IN mysql operator for features matching, this will result in  a string looking like:
+                                //   "23-45", "23-46", "42-0"
+                                $featureInValue = implode(',', array_map(fn ($featureIdentifier) => '"' . $featureIdentifier . '"', $eligible_products_list));
+                                $cart_features = Db::getInstance()->executeS('
+								SELECT cp.quantity, cp.`id_product`, f.`id_feature`, f.`id_feature_value`, cp.`id_product_attribute`
+								FROM `' . _DB_PREFIX_ . 'cart_product` cp
+								LEFT JOIN `' . _DB_PREFIX_ . 'feature_product` f ON cp.id_product = f.id_product
+								WHERE cp.`id_cart` = ' . (int) $cart->id . '
+								AND CONCAT(cp.`id_product`, "-", cp.`id_product_attribute`) IN (' . $featureInValue . ')');
+                                $count_matching_products = 0;
+                                $matching_products_list = [];
+                                foreach ($cart_features as $cart_feature) {
+                                    if (in_array($cart_feature['id_feature'], $product_rule['values']) || in_array($cart_feature['id_feature_value'], $product_rule['values'])) {
+                                        $count_matching_products += $cart_feature['quantity'];
+                                        $matching_products_list[] = $cart_feature['id_product'] . '-' . $cart_feature['id_product_attribute'];
+                                    }
+                                }
+                            }
+                            if ($count_matching_products < $product_rule_group['quantity']) {
+                                if ($countRulesProduct === 1) {
+                                    return (!$displayError) ? false : $this->trans('You cannot use this voucher with these products', [], 'Shop.Notifications.Error');
+                                } else {
+                                    ++$failedProductRules;
+
+                                    break;
+                                }
                             }
                             $eligible_products_list = $this->filterProducts($eligible_products_list, $matching_products_list, $product_rule['type']);
 
@@ -1400,7 +1516,7 @@ class CartRuleCore extends ObjectModel
             $featureFlagManager = $container->get(FeatureFlagStateCheckerInterface::class);
 
             if ($featureFlagManager !== null && $featureFlagManager->isEnabled(FeatureFlagSettings::FEATURE_FLAG_DISCOUNT)) {
-                if ($this->type === DiscountType::ORDER_LEVEL && $this->reduction_percent > 0.00 && $this->reduction_product == 0) {
+                if ($this->getType() === DiscountType::ORDER_LEVEL && $this->reduction_percent > 0.00 && $this->reduction_product == 0) {
                     $order_products_total = $context->cart->getOrderTotal($use_tax, Cart::ONLY_PRODUCTS, $package_products);
                     $order_shipping_total = $context->cart->getOrderTotal($use_tax, Cart::ONLY_SHIPPING, $package_products);
                     $order_total = $order_products_total + $order_shipping_total;
@@ -1585,7 +1701,7 @@ class CartRuleCore extends ObjectModel
 
                         // The reduction cannot exceed the products total, except when we do not want it to be limited (for the partial use calculation)
                         if ($filter != CartRule::FILTER_ACTION_ALL_NOCAP) {
-                            if ($featureFlagManager !== null && $featureFlagManager->isEnabled(FeatureFlagSettings::FEATURE_FLAG_DISCOUNT) && $this->type === DiscountType::ORDER_LEVEL) {
+                            if ($featureFlagManager !== null && $featureFlagManager->isEnabled(FeatureFlagSettings::FEATURE_FLAG_DISCOUNT) && $this->getType() === DiscountType::ORDER_LEVEL) {
                                 $max_reduction_amount = $this->reduction_tax
                                     ? $cart_amount_ti + $context->cart->getOrderTotal(true, Cart::ONLY_SHIPPING, $package_products)
                                     : $cart_amount_te + $context->cart->getOrderTotal(false, Cart::ONLY_SHIPPING, $package_products);
@@ -1641,7 +1757,7 @@ class CartRuleCore extends ObjectModel
                         $current_cart_amount = max($current_cart_amount - (float) $previous_reduction_amount, 0);
                     }
 
-                    if ($featureFlagManager !== null && $featureFlagManager->isEnabled(FeatureFlagSettings::FEATURE_FLAG_DISCOUNT) && $this->type === DiscountType::ORDER_LEVEL) {
+                    if ($featureFlagManager !== null && $featureFlagManager->isEnabled(FeatureFlagSettings::FEATURE_FLAG_DISCOUNT) && $this->getType() === DiscountType::ORDER_LEVEL) {
                         $current_cart_amount += $this->reduction_tax
                             ? $context->cart->getOrderTotal(true, Cart::ONLY_SHIPPING, $package_products)
                             : $context->cart->getOrderTotal(false, Cart::ONLY_SHIPPING, $package_products);

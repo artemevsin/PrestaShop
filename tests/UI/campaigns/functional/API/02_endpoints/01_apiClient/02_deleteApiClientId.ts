@@ -45,7 +45,7 @@ describe('API : DELETE /api-client/{apiClientId}', async () => {
     await utilsPlaywright.closeBrowserContext(browserContext);
   });
 
-  describe('BackOffice : Fetch the access token', async () => {
+  describe('API : Fetch the access token', async () => {
     it('should login in BO', async function () {
       await testContext.addContextItem(this, 'testIdentifier', 'loginBO', baseContext);
 

@@ -23,7 +23,10 @@
  * @copyright Since 2007 PrestaShop SA and Contributors
  * @license   https://opensource.org/licenses/OSL-3.0 Open Software License (OSL 3.0)
  */
+use PrestaShop\PrestaShop\Adapter\ContainerFinder;
 use PrestaShop\PrestaShop\Adapter\ServiceLocator;
+use PrestaShop\PrestaShop\Core\FeatureFlag\FeatureFlagSettings;
+use PrestaShop\PrestaShop\Core\FeatureFlag\FeatureFlagStateCheckerInterface;
 
 class CarrierCore extends ObjectModel
 {
@@ -1135,10 +1138,24 @@ class CarrierCore extends ObjectModel
      */
     public function isUsed()
     {
+        $containerFinder = new ContainerFinder(Context::getContext());
+
+        /** @var FeatureFlagStateCheckerInterface $featureFlagManager */
+        $featureFlagManager = $containerFinder->getContainer()->get(FeatureFlagStateCheckerInterface::class);
+
         $row = Db::getInstance()->getRow('
             SELECT COUNT(`id_carrier`) AS total
             FROM `' . _DB_PREFIX_ . 'orders`
             WHERE `id_carrier` = ' . (int) $this->id);
+
+        if ($featureFlagManager->isEnabled(FeatureFlagSettings::FEATURE_FLAG_IMPROVED_SHIPMENT)) {
+            $result = Db::getInstance()->getRow('
+                SELECT COUNT(`id_carrier`) AS total
+                FROM `' . _DB_PREFIX_ . 'shipment`
+                WHERE `id_carrier` = ' . (int) $this->id);
+
+            $row['total'] += (int) $result['total'];
+        }
 
         return (int) $row['total'];
     }

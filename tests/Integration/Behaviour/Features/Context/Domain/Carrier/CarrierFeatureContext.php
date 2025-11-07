@@ -33,6 +33,7 @@ use Carrier;
 use Exception;
 use Group;
 use PHPUnit\Framework\Assert;
+use PrestaShop\PrestaShop\Core\Domain\Address\ValueObject\AddressId;
 use PrestaShop\PrestaShop\Core\Domain\Carrier\Command\AddCarrierCommand;
 use PrestaShop\PrestaShop\Core\Domain\Carrier\Command\EditCarrierCommand;
 use PrestaShop\PrestaShop\Core\Domain\Carrier\Exception\CarrierConstraintException;
@@ -42,11 +43,14 @@ use PrestaShop\PrestaShop\Core\Domain\Carrier\QueryResult\EditableCarrier;
 use PrestaShop\PrestaShop\Core\Domain\Carrier\ValueObject\CarrierId;
 use PrestaShop\PrestaShop\Core\Domain\Carrier\ValueObject\OutOfRangeBehavior;
 use PrestaShop\PrestaShop\Core\Domain\Carrier\ValueObject\ShippingMethod;
+use PrestaShop\PrestaShop\Core\Domain\Product\ValueObject\ProductId;
+use PrestaShop\PrestaShop\Core\Domain\Product\ValueObject\ProductQuantity;
 use PrestaShop\PrestaShop\Core\Domain\Shop\ValueObject\ShopConstraint;
 use Tests\Integration\Behaviour\Features\Context\Domain\AbstractDomainFeatureContext;
 use Tests\Integration\Behaviour\Features\Context\Domain\TaxRulesGroupFeatureContext;
 use Tests\Resources\DummyFileUploader;
 use Tests\Resources\Resetter\CarrierResetter;
+use Tests\Resources\Resetter\ProductResetter;
 use Zone;
 
 class CarrierFeatureContext extends AbstractDomainFeatureContext
@@ -57,6 +61,7 @@ class CarrierFeatureContext extends AbstractDomainFeatureContext
     public static function restoreCarrierTablesAfterSuite(): void
     {
         CarrierResetter::resetCarrier();
+        ProductResetter::resetProducts();
     }
 
     /**
@@ -408,20 +413,41 @@ class CarrierFeatureContext extends AbstractDomainFeatureContext
     }
 
     /**
-     * @Then the products :products should have the following carriers:
-     *
-     * @param string $products
-     * @param TableNode $table
+     * @When I soft delete carrier :reference
      */
-    public function assertCarriersWithState(string $products, TableNode $table)
+    public function deleteCarrier(string $reference): void
+    {
+        try {
+            // here we use objectmodel for soft delete because CQRS command delete a carrier soft delete only if is linked to an order
+            $carrierId = $this->referenceToId($reference);
+            $carrier = new Carrier($carrierId);
+            $carrier->deleted = true;
+            $carrier->save();
+        } catch (Exception $e) {
+            $this->setLastException($e);
+        }
+    }
+
+    /**
+     * @Then the products :products should have the following carriers with address :address:
+     */
+    public function assertCarriersWithState(string $products, string $address, TableNode $table)
     {
         $expectedRows = $table->getColumnsHash();
 
         $expectedAvailable = [];
         $expectedFiltered = [];
+        $currentCarrierId = null;
 
         foreach ($expectedRows as $row) {
             $carrier = ['name' => $row['carrier']];
+
+            if (!empty($row['carrier_reference'])) {
+                $currentCarrier = new Carrier($this->getCarrier($row['carrier_reference'])->getCarrierId());
+                if ($currentCarrier->deleted) {
+                    $currentCarrierId = $currentCarrier->id;
+                }
+            }
 
             if (strtolower($row['state']) === 'available') {
                 $expectedAvailable[] = $carrier;
@@ -432,16 +458,17 @@ class CarrierFeatureContext extends AbstractDomainFeatureContext
                 ];
             }
         }
-
         $productNames = explode(',', $products);
-        $productIds = [];
+        $productQuantities = [];
 
         foreach ($productNames as $productName) {
-            $productIds[] = $this->referenceToId(trim($productName));
+            $productQuantity = new ProductQuantity(new ProductId($this->referenceToId(trim($productName))), 1);
+            $productQuantities[] = $productQuantity;
         }
 
         $carriersResult = $this->getQueryBus()->handle(
-            new GetAvailableCarriers($productIds)
+            new GetAvailableCarriers($productQuantities, new AddressId($this->referenceToId($address)), $currentCarrierId
+            )
         );
 
         $actualAvailable = array_map(function ($carrierSummary) {
@@ -462,8 +489,8 @@ class CarrierFeatureContext extends AbstractDomainFeatureContext
             ];
         }
 
-        Assert::assertEquals($expectedAvailable, $actualAvailable, 'Available carriers do not match expected.');
-        Assert::assertEquals($expectedFiltered, $actualFiltered, 'Filtered carriers do not match expected.');
+        Assert::assertEqualsCanonicalizing($expectedAvailable, $actualAvailable, 'Available carriers do not match expected.');
+        Assert::assertEqualsCanonicalizing($expectedFiltered, $actualFiltered, 'Filtered carriers do not match expected.');
     }
 
     private function createCarrierUsingCommand(

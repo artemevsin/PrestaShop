@@ -34,3 +34,17 @@ services:
     arguments:
       $connection: '@doctrine.dbal.default_connection'
       $dbPrefix: '%database_prefix%'
+
+  PrestaShop\PrestaShop\Adapter\Discount\Repository\DiscountTypeRepository:
+    arguments:
+      $connection: '@doctrine.dbal.default_connection'
+      $dbPrefix: '%database_prefix%'
+
+  PrestaShop\PrestaShop\Adapter\Discount\Application\DiscountApplicationService:
+    public: true
+    arguments:
+      $discountTypeRepository: '@PrestaShop\PrestaShop\Adapter\Discount\Repository\DiscountTypeRepository'
+
+  prestashop.adapter.discount.priority:
+    class: PrestaShop\PrestaShop\Core\Domain\Discount\ValueObject\DiscountPriority
+    public: true

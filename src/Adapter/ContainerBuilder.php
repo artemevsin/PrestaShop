@@ -35,6 +35,7 @@ use PrestaShop\PrestaShop\Adapter\Container\ContainerParametersExtension;
 use PrestaShop\PrestaShop\Adapter\Container\DoctrineBuilderExtension;
 use PrestaShop\PrestaShop\Adapter\Container\LegacyContainer;
 use PrestaShop\PrestaShop\Adapter\Container\LegacyContainerBuilder;
+use PrestaShop\PrestaShop\Adapter\Doctrine\FrontDoctrineProxyWarmer;
 use PrestaShop\PrestaShop\Core\EnvironmentInterface;
 use PrestaShopBundle\DependencyInjection\Compiler\LoadServicesFromModulesPass;
 use PrestaShopBundle\Exception\ServiceContainerException;
@@ -191,6 +192,11 @@ class ContainerBuilder
         $this->loadServicesFromConfig($container);
         $this->loadModulesAutoloader($container);
         $container->compile();
+
+        if ($this->environment->isDebug() === false) {
+            $proxyWarmer = new FrontDoctrineProxyWarmer($container);
+            $proxyWarmer->run();
+        }
 
         // Dump the container file
         $dumper = new PhpDumper($container);

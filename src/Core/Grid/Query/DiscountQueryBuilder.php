@@ -55,10 +55,12 @@ class DiscountQueryBuilder extends AbstractDoctrineQueryBuilder
         $qb = $this->getQueryBuilder($searchCriteria->getFilters())
             ->select(
                 'cr.id_cart_rule AS id_discount,
-            crl.name,
-            cr.type,
-            cr.code,
-            cr.active'
+                crl.name,
+                crt.type,
+                cr.code,
+                cr.date_from,
+                cr.date_to,
+                cr.active'
             );
         $this->searchCriteriaApplicator
             ->applyPagination($searchCriteria, $qb)
@@ -81,7 +83,7 @@ class DiscountQueryBuilder extends AbstractDoctrineQueryBuilder
     }
 
     /**
-     * Gets query builder with the common sql for catalog price rule listing.
+     * Gets query builder with the common sql for discounts listing.
      *
      * @param array $filters
      *
@@ -101,6 +103,12 @@ class DiscountQueryBuilder extends AbstractDoctrineQueryBuilder
                 'crl',
                 'cr.id_cart_rule = crl.id_cart_rule AND crl.id_lang = :contextLangId'
             )
+            ->leftJoin(
+                'cr',
+                $this->dbPrefix . 'cart_rule_type',
+                'crt',
+                'cr.id_cart_rule_type = crt.id_cart_rule_type'
+            )
             ->setParameter('contextLangId', $this->languageContext->getId())
         ;
 
@@ -119,21 +127,46 @@ class DiscountQueryBuilder extends AbstractDoctrineQueryBuilder
             'id_discount' => 'cr.id_cart_rule',
             'name' => 'crl.name',
             'code' => 'cr.code',
-            'type' => 'cr.type',
+            'type' => 'crt.type',
             'active' => 'cr.active',
         ];
 
         $exactMatchFilters = ['id_discount', 'type', 'active'];
 
         foreach ($filters as $filterName => $value) {
-            if (!array_key_exists($filterName, $allowedFiltersAliasMap)) {
-                return;
+            if (!array_key_exists($filterName, $allowedFiltersAliasMap)
+                && $filterName !== 'date_from_filter'
+                && $filterName !== 'date_to_filter') {
+                continue;
+            }
+
+            if ($filterName === 'date_from_filter' && is_array($value)) {
+                if (!empty($value['from'])) {
+                    $qb->andWhere('cr.date_from >= :dateFromStart')
+                        ->setParameter('dateFromStart', $value['from']);
+                }
+                if (!empty($value['to'])) {
+                    $qb->andWhere('cr.date_from <= :dateFromEnd')
+                        ->setParameter('dateFromEnd', $value['to']);
+                }
+                continue;
+            }
+
+            if ($filterName === 'date_to_filter' && is_array($value)) {
+                if (!empty($value['from'])) {
+                    $qb->andWhere('cr.date_to >= :dateToStart')
+                        ->setParameter('dateToStart', $value['from']);
+                }
+                if (!empty($value['to'])) {
+                    $qb->andWhere('cr.date_to <= :dateToEnd')
+                        ->setParameter('dateToEnd', $value['to']);
+                }
+                continue;
             }
 
             if (in_array($filterName, $exactMatchFilters, true)) {
                 $qb->andWhere($allowedFiltersAliasMap[$filterName] . ' = :' . $filterName);
                 $qb->setParameter($filterName, $value);
-
                 continue;
             }
 

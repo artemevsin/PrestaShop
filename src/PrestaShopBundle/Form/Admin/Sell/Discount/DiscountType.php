@@ -26,12 +26,14 @@
 
 namespace PrestaShopBundle\Form\Admin\Sell\Discount;
 
+use PrestaShop\PrestaShop\Core\ConstraintValidator\Constraints\NotCustomizableProduct;
 use PrestaShop\PrestaShop\Core\Domain\Discount\ValueObject\DiscountType as DiscountTypeVo;
 use PrestaShopBundle\Form\Admin\Type\EntitySearchInputType;
 use PrestaShopBundle\Form\Admin\Type\ProductSearchType;
 use PrestaShopBundle\Form\Admin\Type\TranslatorAwareType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
+use Symfony\Component\Validator\Constraints\NotBlank;
 
 /**
  * This is the form root element for discount form.
@@ -51,19 +53,25 @@ class DiscountType extends TranslatorAwareType
             ->add('information', DiscountInformationType::class, [
                 'discount_type' => $discountType,
             ])
+            ->add('period', DiscountPeriodType::class)
+            ->add('customer_eligibility', DiscountCustomerEligibilityType::class)
             ->add('conditions', DiscountConditionsType::class, [
                 'label' => $this->trans('Product conditions', 'Admin.Catalog.Feature'),
                 'discount_type' => $discountType,
             ])
         ;
 
-        if ($discountType === DiscountTypeVo::CART_LEVEL || $discountType === DiscountTypeVo::ORDER_LEVEL) {
+        if ($discountType === DiscountTypeVo::CART_LEVEL || $discountType === DiscountTypeVo::ORDER_LEVEL || $discountType === DiscountTypeVo::PRODUCT_LEVEL) {
+            $labelSubtitle = match ($discountType) {
+                DiscountTypeVo::CART_LEVEL => $this->trans('This discount applies on cart.', 'Admin.Catalog.Feature'),
+                DiscountTypeVo::ORDER_LEVEL => $this->trans('This discount applies on order.', 'Admin.Catalog.Feature'),
+                DiscountTypeVo::PRODUCT_LEVEL => $this->trans('This discount applies on catalog products.', 'Admin.Catalog.Feature'),
+            };
+
             $builder
                 ->add('value', DiscountValueType::class, [
                     'label' => $this->trans('Choose a discount value', 'Admin.Catalog.Feature'),
-                    'label_subtitle' => $discountType === DiscountTypeVo::CART_LEVEL ?
-                        $this->trans('This discount applies on cart.', 'Admin.Catalog.Feature') :
-                        $this->trans('This discount applies on order.', 'Admin.Catalog.Feature'),
+                    'label_subtitle' => $labelSubtitle,
                 ])
             ;
         }
@@ -78,6 +86,10 @@ class DiscountType extends TranslatorAwareType
                     'empty_state' => $this->trans('No product selected', 'Admin.Catalog.Feature'),
                     'identifier_field' => 'gift_product',
                     'required' => true,
+                    'constraints' => [
+                        new NotBlank(),
+                        new NotCustomizableProduct(['message' => $this->trans('Product with required customization fields cannot be used as a gift.', 'Admin.Catalog.Notification')]),
+                    ],
                 ])
             ;
         }
@@ -85,6 +97,7 @@ class DiscountType extends TranslatorAwareType
         $builder
             ->add('usability', DiscountUsabilityType::class, [
                 'label' => $this->trans('Usability conditions', 'Admin.Catalog.Feature'),
+                'available_cart_rule_types' => $options['available_cart_rule_types'] ?? [],
             ]);
     }
 
@@ -94,10 +107,12 @@ class DiscountType extends TranslatorAwareType
         $resolver->setDefaults([
             'label' => false,
             'form_theme' => '@PrestaShop/Admin/TwigTemplateForm/prestashop_ui_kit_base.html.twig',
+            'available_cart_rule_types' => [],
         ]);
         $resolver->setRequired([
             'discount_type',
         ]);
         $resolver->setAllowedTypes('discount_type', ['string']);
+        $resolver->setAllowedTypes('available_cart_rule_types', ['array']);
     }
 }

@@ -378,6 +378,7 @@ class OrderCore extends ObjectModel
     public function getCartProducts()
     {
         $product_id_list = [];
+        $cart_base_product_quantity = [];
         $products = $this->getProducts();
         foreach ($products as &$product) {
             $product['id_product_attribute'] = $product['product_attribute_id'];
@@ -386,6 +387,12 @@ class OrderCore extends ObjectModel
                 . $product['product_id'] . '_'
                 . $product['product_attribute_id'] . '_'
                 . (isset($product['id_customization']) ? $product['id_customization'] : '0');
+
+            if (!isset($cart_base_product_quantity[$product['id_product']])) {
+                $cart_base_product_quantity[$product['id_product']] = $product['cart_quantity'];
+            } else {
+                $cart_base_product_quantity[$product['id_product']] += $product['cart_quantity'];
+            }
         }
         unset($product);
 
@@ -395,6 +402,8 @@ class OrderCore extends ObjectModel
                 . $product['id_product'] . '_'
                 . (isset($product['id_product_attribute']) ? $product['id_product_attribute'] : '0') . '_'
                 . (isset($product['id_customization']) ? $product['id_customization'] : '0');
+
+            $product['cart_base_product_quantity'] = isset($cart_base_product_quantity[$product['id_product']]) ? $cart_base_product_quantity[$product['id_product']] : 0;
 
             if (in_array($key, $product_id_list)) {
                 $product_list[] = $product;
@@ -863,6 +872,15 @@ class OrderCore extends ObjectModel
         WHERE ocr.`deleted` = 1 AND ocr.`id_order` = ' . (int) $this->id);
     }
 
+    /**
+     * Returns the number of times a cart rule has been used by a customer.
+     * Checks all orders of a given customer for a given cart rule.
+     *
+     * @param int $id_customer Customer ID
+     * @param int $id_cart_rule CartRule ID
+     *
+     * @return int Amount of cart rules used
+     */
     public static function getDiscountsCustomer($id_customer, $id_cart_rule)
     {
         $cache_id = 'Order::getDiscountsCustomer_' . (int) $id_customer . '-' . (int) $id_cart_rule;

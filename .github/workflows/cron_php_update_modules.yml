@@ -10,8 +10,8 @@ permissions:
 jobs:
   update-composer-modules:
     permissions:
-      contents: write  # for peter-evans/create-pull-request to create branch
-      pull-requests: write  # for peter-evans/create-pull-request to create a PR
+      contents: write
+      pull-requests: write
     runs-on: ubuntu-latest
     name: Update PHP Modules
     strategy:
@@ -57,16 +57,31 @@ jobs:
             echo 'Nothing to update'
           fi
 
+      - name: Check composer.lock diff for noise
+        id: lock-diff
+        run: |
+          git add composer.lock
+          git diff --cached --color=never > lock.diff || true
+
+          # Filter out known noise
+          CLEANED=$(grep -Ev '"plugin-api-version":|"platform-dev":' lock.diff || true)
+
+          if [ -z "$CLEANED" ]; then
+            echo "NOISE_ONLY=true" >> $GITHUB_OUTPUT
+          else
+            echo "NOISE_ONLY=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Pull Request
+        if: ${{ steps.updated-packages.outputs.PR_BODY != '' && steps.lock-diff.outputs.NOISE_ONLY == 'false' }}
         uses: peter-evans/create-pull-request@v3
-        if: ${{steps.updated-packages.outputs.PR_BODY}} != ''
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.JARVIS_TOKEN }}
           branch: cron-php-update-modules-${{ env.GH_BRANCH }}
           commit-message: Updated PrestaShop Packages
           committer: PrestonBot <noreply@github.com>
           author: prestonBot <prestonBot@users.noreply.github.com>
           title: 'Updated PrestaShop Packages'
-          body: ${{steps.updated-packages.outputs.PR_BODY}}
+          body: ${{ steps.updated-packages.outputs.PR_BODY }}
           base: ${{ env.GH_BRANCH }}
           delete-branch: true

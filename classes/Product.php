@@ -6896,7 +6896,9 @@ class ProductCore extends ObjectModel
             'ORDER BY `position`'
         );
 
-        if ($position > count($result)) {
+        $sizeResult = count($result);
+
+        if ($position > $sizeResult && $sizeResult > 0) {
             WebserviceRequest::getInstance()->setError(
                 500,
                 $this->trans(

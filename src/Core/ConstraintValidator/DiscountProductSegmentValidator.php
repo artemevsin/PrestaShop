@@ -49,8 +49,9 @@ class DiscountProductSegmentValidator extends ConstraintValidator
         $category = $value[DiscountProductSegmentType::CATEGORY] ?? null;
         $supplier = $value[DiscountProductSegmentType::SUPPLIER] ?? null;
         $attributes = $value[DiscountProductSegmentType::ATTRIBUTES]['groups'] ?? null;
+        $features = $value[DiscountProductSegmentType::FEATURES]['groups'] ?? null;
 
-        if (empty($manufacturer) && empty($category) && empty($supplier) && empty($attributes)) {
+        if (empty($manufacturer) && empty($category) && empty($supplier) && empty($attributes) && empty($features)) {
             $this->context->buildViolation($this->translator->trans('At least one product segment must be selected.', [], 'Admin.Notifications.Error'))
                 ->addViolation();
         }

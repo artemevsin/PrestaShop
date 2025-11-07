@@ -57,6 +57,7 @@ final class AssetsInstaller
         $errorCode = $application->run(new ArrayInput([
             'command' => 'assets:install',
             'target' => $adminFolder,
+            '--symlink' => true,
         ]), $output);
 
         // If the command failed (!= 0), we throw an exception with the output of the command

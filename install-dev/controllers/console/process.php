@@ -49,7 +49,7 @@ class InstallControllerConsoleProcess extends InstallControllerConsole implement
     public function init()
     {
         $output = new ConsoleOutput();
-        $logger = new SymfonyConsoleLogger($output, PrestaShopLoggerInterface::DEBUG);
+        $logger = new SymfonyConsoleLogger($output, SymfonyConsoleLogger::INFO);
 
         $this->model_install = new Install(null, null, $logger);
         $this->model_install->setTranslator($this->translator);

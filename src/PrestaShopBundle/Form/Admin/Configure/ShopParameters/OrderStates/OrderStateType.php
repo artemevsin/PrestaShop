@@ -31,6 +31,7 @@ use PrestaShop\PrestaShop\Core\ConstraintValidator\Constraints\DefaultLanguage;
 use PrestaShop\PrestaShop\Core\ConstraintValidator\Constraints\TypedRegex;
 use PrestaShop\PrestaShop\Core\Domain\Configuration\ShopConfigurationInterface;
 use PrestaShop\PrestaShop\Core\Domain\OrderState\OrderStateSettings;
+use PrestaShop\PrestaShop\Core\Email\LegacyEmailTemplateLister;
 use PrestaShop\PrestaShop\Core\Exception\InvalidArgumentException;
 use PrestaShop\PrestaShop\Core\MailTemplate\Layout\Layout;
 use PrestaShop\PrestaShop\Core\MailTemplate\ThemeCatalogInterface;
@@ -65,12 +66,6 @@ class OrderStateType extends TranslatorAwareType
     private $templateAttributes;
 
     /**
-     * @param TranslatorInterface $translator
-     * @param array $locales
-     * @param ThemeCatalogInterface $themeCatalog
-     * @param UrlGeneratorInterface $routing
-     * @param ShopConfigurationInterface $configuration
-     *
      * @throws InvalidArgumentException
      */
     public function __construct(
@@ -78,7 +73,8 @@ class OrderStateType extends TranslatorAwareType
         array $locales,
         ThemeCatalogInterface $themeCatalog,
         UrlGeneratorInterface $routing,
-        ShopConfigurationInterface $configuration
+        ShopConfigurationInterface $configuration,
+        LegacyEmailTemplateLister $legacyTemplateLister
     ) {
         parent::__construct($translator, $locales);
         $mailTheme = $configuration->get('PS_MAIL_THEME', 'modern');
@@ -91,21 +87,33 @@ class OrderStateType extends TranslatorAwareType
 
             /** @var Layout $mailLayout */
             foreach ($mailLayouts as $mailLayout) {
-                $this->templates[$languageId][$mailLayout->getName()] = $mailLayout->getName();
-                $this->templateAttributes[$languageId][$mailLayout->getName()] = [
+                $templateName = $mailLayout->getName();
+                $this->templates[$languageId][$templateName] = $templateName;
+                $this->templateAttributes[$languageId][$templateName] = [
                     'data-preview' => $routing->generate(
                         empty($mailLayout->getModuleName()) ?
                             'admin_mail_theme_preview_layout' :
                             'admin_mail_theme_preview_module_layout',
                         [
                             'theme' => $mailTheme,
-                            'layout' => $mailLayout->getName(),
+                            'layout' => $templateName,
                             'type' => 'html',
                             'locale' => $locale['iso_code'],
                             'module' => $mailLayout->getModuleName(),
                         ]
                     ),
                 ];
+            }
+
+            $legacyTemplates = $legacyTemplateLister->getLegacyTemplates($locale['iso_code']);
+            foreach ($legacyTemplates as $templateName => $templateInfo) {
+                if (!isset($this->templates[$languageId][$templateName])) {
+                    $this->templates[$languageId][$templateName] = $templateName;
+                    $this->templateAttributes[$languageId][$templateName] = [
+                        'data-preview' => '#',
+                        'data-legacy' => 'true',
+                    ];
+                }
             }
         }
     }

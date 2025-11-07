@@ -50,7 +50,7 @@ const _PS_ALL_THEMES_DIR_ = _PS_ROOT_DIR_ . '/tests/Resources/themes/';
 require_once _PS_ROOT_DIR_ . '/install-dev/init.php';
 
 $output = new ConsoleOutput();
-$logger = new SymfonyConsoleLogger($output, PrestaShopLoggerInterface::DEBUG);
+$logger = new SymfonyConsoleLogger($output, SymfonyConsoleLogger::DEBUG);
 
 $translator = Context::getContext()->getTranslatorFromLocale('en');
 $install = new Install(null, null, $logger);
@@ -76,8 +76,8 @@ $install->initializeTestContext();
 $install->installDefaultData('test_shop', false, false, false);
 $install->populateDatabase();
 $install->configureShop([
-    'admin_firstname' => 'puff',
-    'admin_lastname' => 'daddy',
+    'admin_firstname' => 'puffin',
+    'admin_lastname' => 'mummy',
     'admin_password' => 'test',
     'admin_email' => 'test@prestashop.com',
     'configuration_agrement' => true,

@@ -14,6 +14,7 @@ services:
     arguments:
       - PrestaShopBundle\Entity\Shipment
     lazy: true
+    public: true
 
   PrestaShopBundle\Entity\Repository\TabRepository:
     factory: [ '@doctrine.orm.default_entity_manager', getRepository ]

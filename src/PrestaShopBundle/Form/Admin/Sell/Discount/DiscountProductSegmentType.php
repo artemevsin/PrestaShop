@@ -42,6 +42,7 @@ class DiscountProductSegmentType extends TranslatorAwareType
 {
     public const CATEGORY = 'category';
     public const MANUFACTURER = 'manufacturer';
+    public const FEATURES = 'features';
 
     public const SUPPLIER = 'supplier';
     public const ATTRIBUTES = 'attributes';
@@ -70,6 +71,16 @@ class DiscountProductSegmentType extends TranslatorAwareType
                 'modal_title' => $this->trans('Select attributes', 'Admin.Catalog.Feature'),
                 'modal_select_label' => $this->trans('Select {selectedItemsNb} attribute(s)', 'Admin.Catalog.Feature'),
                 'modal_loading' => $this->trans('Loading attributes', 'Admin.Catalog.Feature'),
+                'required' => false,
+            ])
+            ->add(self::FEATURES, GroupedItemCollectionType::class, [
+                'label' => $this->trans('Features', 'Admin.Catalog.Feature'),
+                'label_tag_name' => 'h3',
+                'select_button_label' => $this->trans('Select features', 'Admin.Catalog.Feature'),
+                'modal_search_placeholder' => $this->trans('Search for feature...', 'Admin.Catalog.Feature'),
+                'modal_title' => $this->trans('Select features', 'Admin.Catalog.Feature'),
+                'modal_select_label' => $this->trans('Select {selectedItemsNb} feature(s)', 'Admin.Catalog.Feature'),
+                'modal_loading' => $this->trans('Loading features', 'Admin.Catalog.Feature'),
                 'required' => false,
             ])
             ->add('quantity', IntegerType::class, [

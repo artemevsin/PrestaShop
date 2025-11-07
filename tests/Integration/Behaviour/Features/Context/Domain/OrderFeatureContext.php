@@ -194,8 +194,9 @@ class OrderFeatureContext extends AbstractDomainFeatureContext
         $combinationId = isset($data['combination']) ? $this->getProductCombinationId($product, $data['combination']) : 0;
 
         if (empty($data['price_tax_incl'])) {
-            $data['price_tax_incl'] = (string) $this->getProductTaxCalculator((int) $orderId, $productId)
-                ->addTaxes($data['price']);
+            $data['price_tax_incl'] = (string) $this
+                ->getProductTaxCalculator((int) $orderId, $productId)
+                ->addTaxes((float) $data['price']);
         }
 
         try {
@@ -288,8 +289,9 @@ class OrderFeatureContext extends AbstractDomainFeatureContext
         }
 
         if (empty($data['price_tax_incl'])) {
-            $data['price_tax_incl'] = (string) $this->getProductTaxCalculator((int) $orderId, $product->getProductId())
-                ->addTaxes($data['price']);
+            $data['price_tax_incl'] = (string) $this
+                ->getProductTaxCalculator((int) $orderId, $product->getProductId())
+                ->addTaxes((float) $data['price']);
         }
 
         try {

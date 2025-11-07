@@ -28,7 +28,8 @@ import DiscountMap from '@pages/discount/discount-map';
 import CreateFreeGiftDiscount from '@pages/discount/form/create-free-gift-discount';
 import SpecificProducts from '@pages/discount/form/specific-products';
 import initGroupedItemCollection from '@PSVue/components/grouped-item-collection';
-import {getAllAttributeGroups} from '@pages/discount/form/services';
+import {getAllAttributeGroups, getAllFeatureGroups} from '@pages/discount/form/services';
+import CustomerSearchInput from '@components/form/customer-search-input';
 
 $(() => {
   window.prestashop.component.initComponents(
@@ -43,6 +44,17 @@ $(() => {
 
   new CreateFreeGiftDiscount();
   new SpecificProducts();
+
+  // Initialize customer search for single customer eligibility
+  const customerSearchContainer = '#discount_customer_eligibility_eligibility_single_customer';
+
+  if ($(customerSearchContainer).length > 0) {
+    new CustomerSearchInput(
+      customerSearchContainer,
+      '.js-customer-item',
+      () => null,
+    );
+  }
 
   const reductionTypeSelect = document.querySelector(DiscountMap.reductionTypeSelect);
 
@@ -105,4 +117,5 @@ $(() => {
   new window.prestashop.component.ChoiceTree(DiscountMap.categoryTree);
 
   initGroupedItemCollection('#discount_conditions_cart_conditions_product_segment_attributes', getAllAttributeGroups);
+  initGroupedItemCollection('#discount_conditions_cart_conditions_product_segment_features', getAllFeatureGroups);
 });

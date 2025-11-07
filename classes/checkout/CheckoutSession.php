@@ -23,21 +23,25 @@
  * @copyright Since 2007 PrestaShop SA and Contributors
  * @license   https://opensource.org/licenses/OSL-3.0 Open Software License (OSL 3.0)
  */
+
+use PrestaShop\PrestaShop\Adapter\Shipment\DeliveryOptionsInterface;
+use PrestaShop\PrestaShop\Adapter\Shipment\DeliveryOptionsProvider;
+
 class CheckoutSessionCore
 {
     /** @var Context */
     protected $context;
-    /** @var DeliveryOptionsFinder */
-    protected $deliveryOptionsFinder;
+    /** @var DeliveryOptionsInterface */
+    protected $deliveryOptions;
 
     /**
      * @param Context $context
-     * @param DeliveryOptionsFinder $deliveryOptionsFinder
+     * @param DeliveryOptionsInterface $deliveryOptions
      */
-    public function __construct(Context $context, DeliveryOptionsFinder $deliveryOptionsFinder)
+    public function __construct(Context $context, DeliveryOptionsInterface $deliveryOptions)
     {
         $this->context = $context;
-        $this->deliveryOptionsFinder = $deliveryOptionsFinder;
+        $this->deliveryOptions = $deliveryOptions;
     }
 
     /**
@@ -150,12 +154,21 @@ class CheckoutSessionCore
 
     public function getSelectedDeliveryOption()
     {
-        return $this->deliveryOptionsFinder->getSelectedDeliveryOption();
+        return $this->deliveryOptions->getSelectedDeliveryOption();
+    }
+
+    public function getProductsByCarrier()
+    {
+        if ($this->deliveryOptions instanceof DeliveryOptionsProvider) {
+            return $this->deliveryOptions->getProductsByCarrier();
+        }
+
+        return [];
     }
 
     public function getDeliveryOptions()
     {
-        return $this->deliveryOptionsFinder->getDeliveryOptions();
+        return $this->deliveryOptions->getDeliveryOptions();
     }
 
     public function setRecyclable($option)

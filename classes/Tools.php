@@ -265,7 +265,7 @@ class ToolsCore
             $httpHost = $_SERVER['HTTP_HOST'];
         }
 
-        $host = (isset($_SERVER['HTTP_X_FORWARDED_HOST']) ? $_SERVER['HTTP_X_FORWARDED_HOST'] : $httpHost);
+        $host = (!empty($_SERVER['HTTP_X_FORWARDED_HOST']) ? $_SERVER['HTTP_X_FORWARDED_HOST'] : $httpHost);
         if ($ignore_port && $pos = strpos($host, ':')) {
             $host = substr($host, 0, $pos);
         }
@@ -333,7 +333,7 @@ class ToolsCore
      */
     public static function getServerName()
     {
-        if (isset($_SERVER['HTTP_X_FORWARDED_SERVER']) && $_SERVER['HTTP_X_FORWARDED_SERVER']) {
+        if (!empty($_SERVER['HTTP_X_FORWARDED_SERVER'])) {
             return $_SERVER['HTTP_X_FORWARDED_SERVER'];
         }
 
@@ -357,7 +357,7 @@ class ToolsCore
             $_SERVER['HTTP_X_FORWARDED_FOR'] = $headers['X-Forwarded-For'];
         }
 
-        if (isset($_SERVER['HTTP_X_FORWARDED_FOR']) && $_SERVER['HTTP_X_FORWARDED_FOR'] && (!isset($_SERVER['REMOTE_ADDR'])
+        if (!empty($_SERVER['HTTP_X_FORWARDED_FOR']) && (!isset($_SERVER['REMOTE_ADDR'])
             || preg_match('/^127\..*/i', trim($_SERVER['REMOTE_ADDR'])) || preg_match('/^172\.(1[6-9]|2\d|30|31)\..*/i', trim($_SERVER['REMOTE_ADDR']))
             || preg_match('/^192\.168\.*/i', trim($_SERVER['REMOTE_ADDR'])) || preg_match('/^10\..*/i', trim($_SERVER['REMOTE_ADDR'])))) {
             if (strpos($_SERVER['HTTP_X_FORWARDED_FOR'], ',')) {
@@ -2210,9 +2210,14 @@ class ToolsCore
             }
         }
 
-        if (Configuration::get('PS_WEBSERVICE_CGI_HOST')) {
-            fwrite($write_fd, "RewriteCond %{HTTP:Authorization} ^(.*)\nRewriteRule . - [E=HTTP_AUTHORIZATION:%1]\n\n");
-        }
+        /*
+         * Propagate authorization header to PHP that is normally removed by Apache.
+         * In the past, it was passed only if PS_WEBSERVICE_CGI_HOST was enabled,
+         * but today, there is no reason not to pass it.
+         */
+        fwrite($write_fd, "# Sets the HTTP_AUTHORIZATION header removed by apache\n");
+        fwrite($write_fd, "RewriteCond %{HTTP:Authorization} .\n");
+        fwrite($write_fd, "RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]\n\n");
 
         foreach ($domains as $domain => $list_uri) {
             // As we use regex in the htaccess, ipv6 surrounded by brackets must be escaped
@@ -3190,7 +3195,7 @@ exit;
      */
     public static function isPHPCLI()
     {
-        return defined('STDIN') || (Tools::strtolower(PHP_SAPI) == 'cli' && (!isset($_SERVER['REMOTE_ADDR']) || empty($_SERVER['REMOTE_ADDR'])));
+        return defined('STDIN') || (Tools::strtolower(PHP_SAPI) == 'cli' && empty($_SERVER['REMOTE_ADDR']));
     }
 
     public static function argvToGET($argc, $argv)

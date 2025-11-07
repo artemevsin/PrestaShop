@@ -39,6 +39,7 @@ use PrestaShop\PrestaShop\Core\Grid\Column\Type\Common\ToggleColumn;
 use PrestaShop\PrestaShop\Core\Grid\Filter\Filter;
 use PrestaShop\PrestaShop\Core\Grid\Filter\FilterCollection;
 use PrestaShop\PrestaShop\Core\Grid\Filter\FilterCollectionInterface;
+use PrestaShopBundle\Form\Admin\Type\DateRangeType;
 use PrestaShopBundle\Form\Admin\Type\SearchAndResetType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
@@ -119,6 +120,22 @@ final class DiscountGridDefinitionFactory extends AbstractGridDefinitionFactory 
                     ])
             )
             ->add(
+                (new DataColumn('date_from'))
+                    ->setName($this->trans('Start date', [], 'Admin.Catalog.Feature'))
+                    ->setOptions([
+                        'field' => 'date_from',
+                        'sortable' => true,
+                    ])
+            )
+            ->add(
+                (new DataColumn('date_to'))
+                    ->setName($this->trans('Expiration date', [], 'Admin.Catalog.Feature'))
+                    ->setOptions([
+                        'field' => 'date_to',
+                        'sortable' => true,
+                    ])
+            )
+            ->add(
                 (new ToggleColumn('active'))
                     ->setName($this->trans('Status', [], 'Admin.Global'))
                     ->setOptions([
@@ -194,6 +211,21 @@ final class DiscountGridDefinitionFactory extends AbstractGridDefinitionFactory 
                         'placeholder' => $this->trans('All', [], 'Admin.Global'),
                         'choice_translation_domain' => false,
                     ])
+            )
+            ->add((new Filter('date_from_filter', DateRangeType::class))
+                ->setTypeOptions([
+                    'required' => false,
+                    'date_format' => 'YYYY-MM-DD HH:mm:ss',
+                ])
+                ->setAssociatedColumn('date_from')
+            )
+            ->add(
+                (new Filter('date_to_filter', DateRangeType::class))
+                    ->setTypeOptions([
+                        'required' => false,
+                        'date_format' => 'YYYY-MM-DD HH:mm:ss',
+                    ])
+                    ->setAssociatedColumn('date_to')
             )
             ->add(
                 (new Filter('actions', SearchAndResetType::class))

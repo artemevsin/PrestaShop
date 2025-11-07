@@ -24,6 +24,7 @@
  */
 
 import AttributeFormMap from '@pages/attribute/form/attribute-form-map';
+import FormSubmitButton from '@components/form-submit-button';
 
 const {$} = window;
 
@@ -36,31 +37,27 @@ $(() => {
   );
 
   new window.prestashop.component.ChoiceTree(AttributeFormMap.attributeShopAssociationInput).enableAutoCheckChildren();
+
+  new FormSubmitButton();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
-  const attributeGroupSelect = document.querySelector(AttributeFormMap.attributeGroupSelect) as HTMLInputElement | null;
+  const attributeGroupSelect = document.querySelector(AttributeFormMap.attributeGroupSelect) as HTMLSelectElement | null;
   const attributeColorRow = document.querySelector(AttributeFormMap.attributeColorFormRow) as HTMLElement | null;
   const attributeTextureRow = document.querySelector(AttributeFormMap.attributeTextureFormRow) as HTMLElement | null;
-  const attributeGroupSelectValue = (attributeGroupSelect as HTMLInputElement | null)?.value;
 
-  const toggleDisplay = (value: string | null) => {
-    if (attributeColorRow && attributeTextureRow) {
-      const displayValue = value === '2' ? 'flex' : 'none';
-      attributeColorRow.style.display = displayValue;
-      attributeTextureRow.style.display = displayValue;
-    }
+  if (!attributeGroupSelect || !attributeColorRow || !attributeTextureRow) return;
+
+  const toggleDisplay = () => {
+    const selectedOption = attributeGroupSelect?.selectedOptions[0];
+    const isColorGroup = selectedOption?.dataset.iscolorgroup;
+    const displayValue = isColorGroup ? 'flex' : 'none';
+
+    attributeColorRow.style.display = displayValue;
+    attributeTextureRow.style.display = displayValue;
   };
 
-  if (attributeGroupSelectValue) {
-    toggleDisplay(attributeGroupSelectValue);
-  }
+  toggleDisplay();
 
-  attributeGroupSelect?.addEventListener('change', () => {
-    const NewattributeGroupSelectValue = (attributeGroupSelect as HTMLInputElement | null)?.value;
-
-    if (NewattributeGroupSelectValue) {
-      toggleDisplay(NewattributeGroupSelectValue);
-    }
-  });
+  attributeGroupSelect?.addEventListener('change', toggleDisplay);
 });

@@ -121,13 +121,19 @@
 }
 
 .mce-fullscreen {
-  z-index: 100;
+  z-index: 1100;
   height: 100%;
   padding: 0;
   margin: 0;
   overflow: hidden;
   background: $white;
   border: 0;
+
+  .mce-edit-area {
+    /* stylelint-disable declaration-no-important */
+    max-height: inherit !important;
+    /* stylelint-enable declaration-no-important */
+  }
 }
 
 div.mce-fullscreen {
