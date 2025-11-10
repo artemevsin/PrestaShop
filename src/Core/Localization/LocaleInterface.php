@@ -54,21 +54,21 @@ interface LocaleInterface
     /**
      * Format a number according to locale rules.
      *
-     * @param int|float|string $number The number to be formatted
+     * @param int|float|string|null $number The number to be formatted (null will be treated as 0)
      *
      * @return string The formatted number
      */
-    public function formatNumber(int|float|string $number): string;
+    public function formatNumber(int|float|string|null $number): string;
 
     /**
      * Format a number as a price.
      *
-     * @param int|float|string $number Number to be formatted as a price
+     * @param int|float|string|null $number Number to be formatted as a price (null will be treated as 0)
      * @param string $currencyCode Currency of the price
      *
      * @return string The formatted price
      */
-    public function formatPrice(int|float|string $number, string $currencyCode): string;
+    public function formatPrice(int|float|string|null $number, string $currencyCode): string;
 
     /**
      * Get price specification by currency code.
